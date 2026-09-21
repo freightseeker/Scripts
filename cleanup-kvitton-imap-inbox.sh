@@ -1,4 +1,4 @@
-!/bin/bash
+#!/bin/bash
 
 # ==============================================================================
 # Freightseeker - Kvitton IMAP Cleanup
@@ -52,7 +52,6 @@
 #
 # EXAMPLE
 # -------
-#   $ bash <(curl -fsSL "https://raw.githubusercontent.com/freightseeker/Scripts/master/cleanup-kvitton-imap-inbox.sh")
 #
 #   ============================================================
 #   KVITTON CLEANUP
@@ -62,15 +61,20 @@
 #   How many old emails do you want to move to Trash? 1000
 #   Password for user@freightseeker.com:
 #
-#   ...
+#   Searching for old emails...
 #
+#   Found 1000 old emails.
+#   Validating selection...
+#
+#   ============================================================
 #   VALIDATION PASSED
+#   ============================================================
 #
-#   Emails selected:   1000
-#   Emails validated:  1000
-#   Cutoff:             before 21-Sep-2025
-#   From:               INBOX.Kvitton
-#   To:                 INBOX.Trash
+#   Emails selected:  1000
+#   Emails validated: 1000
+#   Cutoff:            before 21-Sep-2025
+#   From:              INBOX.Kvitton
+#   To:                INBOX.Trash
 #
 #   Move these 1000 emails to Trash? (yes/no): yes
 #
@@ -102,15 +106,27 @@
 #
 # ==============================================================================
 
+
+# ==============================================================================
+# Configuration
+# ==============================================================================
+
 IMAP_SERVER="mail.glesys.se"
 IMAP_PORT="993"
-EMAIL="mattias@freightseeker.com"
 
 MAILBOX="INBOX.Kvitton"
 TRASH="INBOX.Trash"
 
+# Search mailbox in chunks to prevent huge IMAP SEARCH responses.
 SEARCH_CHUNK=5000
+
+# Move messages in smaller batches.
 MOVE_BATCH_SIZE=500
+
+
+# ==============================================================================
+# Start
+# ==============================================================================
 
 echo
 echo "============================================================"
@@ -118,31 +134,83 @@ echo "KVITTON CLEANUP"
 echo "============================================================"
 echo
 
+
+# ==============================================================================
+# Email address
+# ==============================================================================
+
+read -p "Email address: " EMAIL
+
+if [ -z "$EMAIL" ]; then
+    echo
+    echo "ERROR: Email address cannot be empty."
+    exit 1
+fi
+
+
+# ==============================================================================
+# Number of emails
+# ==============================================================================
+
 read -p "How many old emails do you want to move to Trash? " LIMIT
 
 if ! [[ "$LIMIT" =~ ^[1-9][0-9]*$ ]]; then
+    echo
     echo "ERROR: Enter a positive whole number."
     exit 1
 fi
 
-echo -n "IMAP password: "
+
+# ==============================================================================
+# Password
+# ==============================================================================
+
+echo -n "Password for $EMAIL: "
 read -s PASSWORD
 echo
 echo
 
-# macOS: one year ago
+
+# ==============================================================================
+# Calculate cutoff
+#
+# macOS date syntax.
+#
+# IMAP BEFORE works with calendar dates.
+#
+# Example:
+#
+#   BEFORE 21-Sep-2025
+#
+# means strictly before 21-Sep-2025.
+#
+# Emails dated 21-Sep-2025 are therefore NOT selected.
+# ==============================================================================
+
 BEFORE=$(date -v-1y +"%d-%b-%Y")
 
+
+# ==============================================================================
+# Show settings
+# ==============================================================================
+
+echo "============================================================"
+echo "SETTINGS"
+echo "============================================================"
+echo "Account:     $EMAIL"
 echo "Mailbox:     $MAILBOX"
 echo "Destination: $TRASH"
 echo "Cutoff:      before $BEFORE"
 echo "Requested:   $LIMIT"
+echo "============================================================"
 echo
+
 echo "Searching for old emails..."
 
-# ============================================================
+
+# ==============================================================================
 # Temporary files
-# ============================================================
+# ==============================================================================
 
 TMP_UIDS=$(mktemp)
 BATCH_FILE=$(mktemp)
@@ -154,9 +222,17 @@ cleanup()
 
 trap cleanup EXIT
 
-# ============================================================
-# Search in chunks
-# ============================================================
+
+# ==============================================================================
+# Search mailbox in chunks
+#
+# We intentionally do NOT perform one huge:
+#
+#   UID SEARCH BEFORE ...
+#
+# because mailboxes containing hundreds of thousands of emails can generate
+# an IMAP response too large for curl.
+# ==============================================================================
 
 START=1
 
@@ -181,6 +257,11 @@ while true; do
     if [ $? -ne 0 ]; then
         echo
         echo "ERROR: IMAP search failed."
+        echo
+        echo "Check:"
+        echo "  - Email address"
+        echo "  - Password"
+        echo "  - IMAP connection"
         exit 1
     fi
 
@@ -195,16 +276,20 @@ while true; do
 
     START=$((END + 1))
 
-    # Safety against accidental endless scanning
+    # Prevent an accidental endless scan.
     if [ "$START" -gt 1000000 ]; then
         echo
-        echo "Safety stop after 1,000,000 mailbox positions."
+        echo "Safety stop after searching 1,000,000 mailbox positions."
         break
     fi
 
 done
 
-# Keep only requested number
+
+# ==============================================================================
+# Keep exactly the requested number
+# ==============================================================================
+
 head -n "$LIMIT" "$TMP_UIDS" > "${TMP_UIDS}.limited"
 mv "${TMP_UIDS}.limited" "$TMP_UIDS"
 
@@ -220,10 +305,23 @@ echo
 echo "Found $COUNT old emails."
 echo "Validating selection..."
 
-# ============================================================
-# Function:
-# Verify NONE of these UIDs are SINCE cutoff
-# ============================================================
+
+# ==============================================================================
+# Safety validation
+#
+# For the supplied UIDs, ask the IMAP server if ANY message has an
+# INTERNALDATE on or after the cutoff.
+#
+# Example:
+#
+#   UID SEARCH UID 9190,9191,9192 SINCE 21-Sep-2025
+#
+# A safe response contains no UIDs:
+#
+#   * SEARCH
+#
+# If ANY UID is returned, the entire operation is aborted.
+# ==============================================================================
 
 check_batch_is_old()
 {
@@ -267,11 +365,13 @@ check_batch_is_old()
     fi
 }
 
-# ============================================================
-# Validate ALL selected messages before asking user
-# ============================================================
+
+# ==============================================================================
+# Validate ALL selected emails before asking for confirmation
+# ==============================================================================
 
 VALIDATED=0
+
 > "$BATCH_FILE"
 
 while IFS= read -r MSG_UID; do
@@ -293,7 +393,11 @@ while IFS= read -r MSG_UID; do
 
 done < "$TMP_UIDS"
 
-# Remaining messages
+
+# ==============================================================================
+# Validate remaining messages
+# ==============================================================================
+
 BATCH_COUNT=$(wc -l < "$BATCH_FILE" | tr -d ' ')
 
 if [ "$BATCH_COUNT" -gt 0 ]; then
@@ -305,15 +409,17 @@ if [ "$BATCH_COUNT" -gt 0 ]; then
     VALIDATED=$((VALIDATED + BATCH_COUNT))
 fi
 
-# ============================================================
-# Confirmation
-# ============================================================
+
+# ==============================================================================
+# User confirmation
+# ==============================================================================
 
 echo
 echo "============================================================"
 echo "VALIDATION PASSED"
 echo "============================================================"
 echo
+echo "Account:          $EMAIL"
 echo "Emails selected:  $COUNT"
 echo "Emails validated: $VALIDATED"
 echo "Cutoff:            before $BEFORE"
@@ -321,26 +427,49 @@ echo "From:              $MAILBOX"
 echo "To:                $TRASH"
 echo
 echo "No individual emails are displayed."
-echo "Messages will be MOVED to Trash, not permanently deleted."
+echo
+echo "IMPORTANT:"
+echo "The messages will be MOVED to Trash."
+echo "They will NOT be permanently deleted by this script."
+echo
+echo "============================================================"
 echo
 
 read -p "Move these $COUNT emails to Trash? (yes/no): " CONFIRM
 
 if [ "$CONFIRM" != "yes" ]; then
     echo
-    echo "Cancelled. Nothing has been moved."
+    echo "Cancelled."
+    echo "Nothing has been moved."
     exit 0
 fi
 
-# ============================================================
-# Move in batches
-# ============================================================
+
+# ==============================================================================
+# Move messages
+# ==============================================================================
 
 echo
 echo "Moving emails..."
+echo
 
 MOVED=0
+
 > "$BATCH_FILE"
+
+
+# ==============================================================================
+# Move one batch
+#
+# IMPORTANT:
+#
+# Every batch is validated AGAIN immediately before the UID MOVE command.
+#
+# This means the safety validation happens:
+#
+#   1. Before asking the user for confirmation.
+#   2. Immediately before each MOVE.
+# ==============================================================================
 
 move_batch()
 {
@@ -350,15 +479,17 @@ move_batch()
 
     BATCH_COUNT=$(wc -l < "$BATCH_FILE" | tr -d ' ')
 
-    # --------------------------------------------------------
-    # FINAL safety check immediately before MOVE
-    # --------------------------------------------------------
+
+    # --------------------------------------------------------------------------
+    # Final safety check
+    # --------------------------------------------------------------------------
 
     check_batch_is_old "$UID_SET"
 
-    # --------------------------------------------------------
-    # Move to Trash
-    # --------------------------------------------------------
+
+    # --------------------------------------------------------------------------
+    # Move validated emails to Trash
+    # --------------------------------------------------------------------------
 
     curl \
         --silent \
@@ -373,9 +504,10 @@ move_batch()
         echo
         echo "ERROR: IMAP MOVE failed."
         echo
-        echo "$MOVED emails were moved before the failure."
+        echo "$MOVED emails were successfully moved before the failure."
         exit 1
     fi
+
 
     MOVED=$((MOVED + BATCH_COUNT))
 
@@ -383,6 +515,11 @@ move_batch()
 
     > "$BATCH_FILE"
 }
+
+
+# ==============================================================================
+# Process selected messages
+# ==============================================================================
 
 while IFS= read -r MSG_UID; do
 
@@ -396,23 +533,34 @@ while IFS= read -r MSG_UID; do
 
 done < "$TMP_UIDS"
 
+
+# ==============================================================================
 # Move final partial batch
+# ==============================================================================
+
 BATCH_COUNT=$(wc -l < "$BATCH_FILE" | tr -d ' ')
 
 if [ "$BATCH_COUNT" -gt 0 ]; then
     move_batch
 fi
 
+
+# ==============================================================================
+# Done
+# ==============================================================================
+
 echo
 echo "============================================================"
 echo "DONE"
 echo "============================================================"
 echo
-echo "Moved:  $MOVED emails"
-echo "Cutoff: before $BEFORE"
+echo "Account: $EMAIL"
+echo "Moved:   $MOVED emails"
+echo "Cutoff:  before $BEFORE"
 echo
 echo "$MAILBOX"
 echo "    -> $TRASH"
 echo
 echo "No emails were permanently deleted."
 echo "============================================================"
+echo
