@@ -3,56 +3,92 @@
 # ==============================================================================
 # Freightseeker - Kvitton IMAP Cleanup
 # ==============================================================================
-#
 # PURPOSE
 # -------
-# Cleans old emails from the "Kvitton" IMAP folder on Freightseeker/GleSYS
-# email accounts.
+# Moves old emails from INBOX.Kvitton to INBOX.Trash on the GleSYS
+# IMAP server.
 #
 # The script:
-#   1. Asks for your email address.
-#   2. Asks how many old emails you want to process.
-#   3. Asks for your email password (input is hidden).
-#   4. Finds emails older than one year in INBOX.Kvitton.
-#   5. Validates that the selected emails are actually older than one year.
-#   6. Shows a summary and asks for confirmation.
-#   7. Validates the emails AGAIN immediately before moving them.
-#   8. Moves them to INBOX.Trash.
+#   1. Asks for the email address.
+#   2. Asks how many old emails to process.
+#   3. Asks for the email password (input is hidden).
+#   4. Searches INBOX.Kvitton for emails with an IMAP internal date
+#      older than one year.
+#   5. Selects up to the requested number of old emails.
+#   6. Validates that none of the selected messages have an IMAP
+#      internal date on or after the cutoff date.
+#   7. Shows a summary and asks for explicit confirmation.
+#   8. Revalidates every batch immediately before moving it.
+#   9. Moves the validated messages to INBOX.Trash.
 #
 # IMPORTANT
 # ---------
-# Emails are moved to Trash. They are NOT permanently deleted by this script.
+# This script does NOT permanently delete messages.
 #
-# The script will abort if its safety validation finds a selected email that
-# is not older than the cutoff date.
+# Messages are moved:
 #
+#   INBOX.Kvitton -> INBOX.Trash
+#
+# The Trash folder may be emptied later by the mail server, mail client,
+# retention policy, or manually by the user. This script does not control
+# what happens to messages after they have been moved to Trash.
+#
+# DATE SAFETY
+# -----------
+# The script uses the IMAP search criteria BEFORE and SINCE.
+#
+# These criteria use the message's IMAP internal date, not the Date:
+# header supplied by the sender.
+#
+# For example:
+#
+#   BEFORE 21-Sep-2025
+#
+# selects messages whose internal date is strictly before 21-Sep-2025.
+#
+# Messages dated 21-Sep-2025 itself are NOT selected.
+#
+# Before anything is moved, the script also checks the selected UIDs using:
+#
+#   UID SEARCH UID <selected UIDs> SINCE <cutoff>
+#
+# If the server returns ANY selected UID, the safety check fails and the
+# operation is aborted.
+#
+# The same validation is performed again immediately before each MOVE.
+#
+# LARGE MAILBOXES
+# ---------------
+# The mailbox may contain hundreds of thousands of messages.
+#
+# To avoid excessively large IMAP responses:
+#
+#   - The mailbox is searched in chunks.
+#   - Messages are moved in batches of 500.
+#   - Individual messages are not printed to the terminal.
 #
 # REQUIREMENTS
 # ------------
 #   - macOS
 #   - Terminal
 #   - curl (included with macOS)
-#   - Access to the Freightseeker/GleSYS IMAP account
-#
+#   - A valid GleSYS email account with access to INBOX.Kvitton
 #
 # RUN DIRECTLY FROM GITHUB
 # ------------------------
-# Open Terminal on your Mac and run:
+# Open Terminal and run:
 #
 #   bash <(curl -fsSL "https://raw.githubusercontent.com/freightseeker/Scripts/master/cleanup-kvitton-imap-inbox.sh")
 #
-#
 # RUN A LOCAL COPY
 # ----------------
-# If you have downloaded the script:
+# Download the script and run:
 #
 #   chmod +x cleanup-kvitton-imap-inbox.sh
 #   ./cleanup-kvitton-imap-inbox.sh
 #
-#
 # EXAMPLE
 # -------
-#
 #   ============================================================
 #   KVITTON CLEANUP
 #   ============================================================
@@ -60,6 +96,16 @@
 #   Email address: user@freightseeker.com
 #   How many old emails do you want to move to Trash? 1000
 #   Password for user@freightseeker.com:
+#
+#   ============================================================
+#   SETTINGS
+#   ============================================================
+#   Account:     user@freightseeker.com
+#   Mailbox:     INBOX.Kvitton
+#   Destination: INBOX.Trash
+#   Cutoff:      before 21-Sep-2025
+#   Requested:   1000
+#   ============================================================
 #
 #   Searching for old emails...
 #
@@ -83,27 +129,33 @@
 #   Moved 500 / 1000
 #   Moved 1000 / 1000
 #
+#   ============================================================
 #   DONE
-#
+#   ============================================================
 #
 # SECURITY
 # --------
-# Never put your email password in this file.
+# Do not store email passwords in this script or in GitHub.
 #
-# The password is requested interactively and is not displayed while typing.
-# The script does not save the password to disk.
+# The password is requested interactively using "read -s", so it is not
+# displayed while being entered.
 #
+# The script keeps the password in memory only for the duration of the
+# process and does not intentionally write it to disk.
 #
-# NOTES
-# -----
-# - Only emails older than one year are selected.
-# - The cutoff is based on the IMAP server's INTERNALDATE.
-# - Emails on the cutoff date itself are NOT selected.
-# - Messages are processed in batches to support very large mailboxes.
-# - Every batch is validated again immediately before it is moved.
-# - Enter anything other than exactly "yes" at the confirmation prompt to
-#   cancel the operation.
+# CANCELLATION
+# ------------
+# The script asks:
 #
+#   Move these N emails to Trash? (yes/no):
+#
+# Only exactly:
+#
+#   yes
+#
+# continues with the MOVE operation.
+#
+# Any other response cancels the operation before messages are moved.
 # ==============================================================================
 
 
