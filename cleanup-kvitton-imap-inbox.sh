@@ -1,205 +1,105 @@
-#!/bin/bash
+!/bin/bash
 
 # ==============================================================================
-
 # Freightseeker - Kvitton IMAP Cleanup
-
 # ==============================================================================
-
 #
-
 # PURPOSE
-
 # -------
-
 # Cleans old emails from the "Kvitton" IMAP folder on Freightseeker/GleSYS
-
 # email accounts.
-
 #
-
 # The script:
-
 #   1. Asks for your email address.
-
 #   2. Asks how many old emails you want to process.
-
 #   3. Asks for your email password (input is hidden).
-
 #   4. Finds emails older than one year in INBOX.Kvitton.
-
 #   5. Validates that the selected emails are actually older than one year.
-
 #   6. Shows a summary and asks for confirmation.
-
 #   7. Validates the emails AGAIN immediately before moving them.
-
 #   8. Moves them to INBOX.Trash.
-
 #
-
 # IMPORTANT
-
 # ---------
-
 # Emails are moved to Trash. They are NOT permanently deleted by this script.
-
 #
-
 # The script will abort if its safety validation finds a selected email that
-
 # is not older than the cutoff date.
-
 #
-
 #
-
 # REQUIREMENTS
-
 # ------------
-
 #   - macOS
-
 #   - Terminal
-
 #   - curl (included with macOS)
-
 #   - Access to the Freightseeker/GleSYS IMAP account
-
 #
-
 #
-
 # RUN DIRECTLY FROM GITHUB
-
 # ------------------------
-
 # Open Terminal on your Mac and run:
-
 #
-
 #   bash <(curl -fsSL "https://raw.githubusercontent.com/freightseeker/Scripts/master/cleanup-kvitton-imap-inbox.sh")
-
 #
-
 #
-
 # RUN A LOCAL COPY
-
 # ----------------
-
 # If you have downloaded the script:
-
 #
-
 #   chmod +x cleanup-kvitton-imap-inbox.sh
-
 #   ./cleanup-kvitton-imap-inbox.sh
-
 #
-
 #
-
 # EXAMPLE
-
 # -------
-
 #   $ bash <(curl -fsSL "https://raw.githubusercontent.com/freightseeker/Scripts/master/cleanup-kvitton-imap-inbox.sh")
-
 #
-
 #   ============================================================
-
 #   KVITTON CLEANUP
-
 #   ============================================================
-
 #
-
 #   Email address: user@freightseeker.com
-
 #   How many old emails do you want to move to Trash? 1000
-
 #   Password for user@freightseeker.com:
-
 #
-
 #   ...
-
 #
-
 #   VALIDATION PASSED
-
 #
-
 #   Emails selected:   1000
-
 #   Emails validated:  1000
-
 #   Cutoff:             before 21-Sep-2025
-
 #   From:               INBOX.Kvitton
-
 #   To:                 INBOX.Trash
-
 #
-
 #   Move these 1000 emails to Trash? (yes/no): yes
-
 #
-
 #   Moving emails...
-
 #
-
 #   Moved 500 / 1000
-
 #   Moved 1000 / 1000
-
 #
-
 #   DONE
-
 #
-
 #
-
 # SECURITY
-
 # --------
-
 # Never put your email password in this file.
-
 #
-
 # The password is requested interactively and is not displayed while typing.
-
 # The script does not save the password to disk.
-
 #
-
 #
-
 # NOTES
-
 # -----
-
 # - Only emails older than one year are selected.
-
 # - The cutoff is based on the IMAP server's INTERNALDATE.
-
 # - Emails on the cutoff date itself are NOT selected.
-
 # - Messages are processed in batches to support very large mailboxes.
-
 # - Every batch is validated again immediately before it is moved.
-
 # - Enter anything other than exactly "yes" at the confirmation prompt to
-
 #   cancel the operation.
-
 #
-
 # ==============================================================================
 
 IMAP_SERVER="mail.glesys.se"
