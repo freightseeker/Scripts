@@ -5,157 +5,78 @@
 # ==============================================================================
 # PURPOSE
 # -------
-# Moves old emails from INBOX.Kvitton to INBOX.Trash on the GleSYS
-# IMAP server.
+# Moves old emails from a selected Kvitton folder to the account's Trash folder
+# on the GleSYS IMAP server.
 #
 # The script:
-#   1. Asks for the email address.
-#   2. Asks how many old emails to process.
-#   3. Asks for the email password (input is hidden).
-#   4. Searches INBOX.Kvitton for emails with an IMAP internal date
-#      older than one year.
-#   5. Selects up to the requested number of old emails.
-#   6. Validates that none of the selected messages have an IMAP
-#      internal date on or after the cutoff date.
-#   7. Shows a summary and asks for explicit confirmation.
-#   8. Revalidates every batch immediately before moving it.
-#   9. Moves the validated messages to INBOX.Trash.
+#   1. Gets the email address from the command line or asks for it.
+#   2. Asks for the email password (input is hidden).
+#   3. Retrieves the account's IMAP folders.
+#   4. Automatically finds a folder named "Kvitton" (case-insensitive).
+#   5. Lets the user select a folder if Kvitton cannot be uniquely identified.
+#   6. Automatically finds the Trash folder.
+#   7. Asks how many old emails to process.
+#   8. Finds emails older than one year.
+#   9. Validates all selected messages before confirmation.
+#  10. Asks for explicit confirmation.
+#  11. Revalidates every batch immediately before moving it.
+#  12. Moves the validated messages to Trash.
 #
 # IMPORTANT
 # ---------
 # This script does NOT permanently delete messages.
 #
-# Messages are moved:
-#
-#   INBOX.Kvitton -> INBOX.Trash
+# Messages are moved from the selected source folder to Trash.
 #
 # The Trash folder may be emptied later by the mail server, mail client,
-# retention policy, or manually by the user. This script does not control
-# what happens to messages after they have been moved to Trash.
+# retention policy, or manually by the user.
 #
 # DATE SAFETY
 # -----------
-# The script uses the IMAP search criteria BEFORE and SINCE.
-#
-# These criteria use the message's IMAP internal date, not the Date:
+# IMAP BEFORE and SINCE use the message's IMAP internal date, not the Date:
 # header supplied by the sender.
 #
-# For example:
+# Example:
 #
-#   BEFORE 21-Sep-2025
+#   BEFORE 23-Sep-2025
 #
-# selects messages whose internal date is strictly before 21-Sep-2025.
+# means strictly before 23-Sep-2025.
 #
-# Messages dated 21-Sep-2025 itself are NOT selected.
+# Messages dated 23-Sep-2025 itself are NOT selected.
 #
-# Before anything is moved, the script also checks the selected UIDs using:
+# Before anything is moved, selected UIDs are checked using:
 #
 #   UID SEARCH UID <selected UIDs> SINCE <cutoff>
 #
-# If the server returns ANY selected UID, the safety check fails and the
-# operation is aborted.
+# If ANY selected UID is returned, the operation is aborted.
 #
-# The same validation is performed again immediately before each MOVE.
-#
-# LARGE MAILBOXES
-# ---------------
-# The mailbox may contain hundreds of thousands of messages.
-#
-# To avoid excessively large IMAP responses:
-#
-#   - The mailbox is searched in chunks.
-#   - Messages are moved in batches of 500.
-#   - Individual messages are not printed to the terminal.
+# Every batch is validated again immediately before MOVE.
 #
 # REQUIREMENTS
 # ------------
 #   - macOS
 #   - Terminal
 #   - curl (included with macOS)
-#   - A valid GleSYS email account with access to INBOX.Kvitton
+#   - Access to the GleSYS IMAP account
 #
 # RUN DIRECTLY FROM GITHUB
 # ------------------------
-# Open Terminal and run:
+# Recommended:
+#
+#   bash <(curl -fsSL "https://raw.githubusercontent.com/freightseeker/Scripts/master/cleanup-kvitton-imap-inbox.sh") user@freightseeker.com
+#
+# You can also omit the email address:
 #
 #   bash <(curl -fsSL "https://raw.githubusercontent.com/freightseeker/Scripts/master/cleanup-kvitton-imap-inbox.sh")
 #
-# RUN A LOCAL COPY
-# ----------------
-# Download the script and run:
-#
-#   chmod +x cleanup-kvitton-imap-inbox.sh
-#   ./cleanup-kvitton-imap-inbox.sh
-#
-# EXAMPLE
-# -------
-#   ============================================================
-#   KVITTON CLEANUP
-#   ============================================================
-#
-#   Email address: user@freightseeker.com
-#   How many old emails do you want to move to Trash? 1000
-#   Password for user@freightseeker.com:
-#
-#   ============================================================
-#   SETTINGS
-#   ============================================================
-#   Account:     user@freightseeker.com
-#   Mailbox:     INBOX.Kvitton
-#   Destination: INBOX.Trash
-#   Cutoff:      before 21-Sep-2025
-#   Requested:   1000
-#   ============================================================
-#
-#   Searching for old emails...
-#
-#   Found 1000 old emails.
-#   Validating selection...
-#
-#   ============================================================
-#   VALIDATION PASSED
-#   ============================================================
-#
-#   Emails selected:  1000
-#   Emails validated: 1000
-#   Cutoff:            before 21-Sep-2025
-#   From:              INBOX.Kvitton
-#   To:                INBOX.Trash
-#
-#   Move these 1000 emails to Trash? (yes/no): yes
-#
-#   Moving emails...
-#
-#   Moved 500 / 1000
-#   Moved 1000 / 1000
-#
-#   ============================================================
-#   DONE
-#   ============================================================
+# The script will then ask for it.
 #
 # SECURITY
 # --------
-# Do not store email passwords in this script or in GitHub.
+# Do NOT put the email password in this file, GitHub, or the command line.
 #
 # The password is requested interactively using "read -s", so it is not
 # displayed while being entered.
-#
-# The script keeps the password in memory only for the duration of the
-# process and does not intentionally write it to disk.
-#
-# CANCELLATION
-# ------------
-# The script asks:
-#
-#   Move these N emails to Trash? (yes/no):
-#
-# Only exactly:
-#
-#   yes
-#
-# continues with the MOVE operation.
-#
-# Any other response cancels the operation before messages are moved.
 # ==============================================================================
 
 
@@ -166,13 +87,7 @@
 IMAP_SERVER="mail.glesys.se"
 IMAP_PORT="993"
 
-MAILBOX="INBOX.Kvitton"
-TRASH="INBOX.Trash"
-
-# Search mailbox in chunks to prevent huge IMAP SEARCH responses.
 SEARCH_CHUNK=5000
-
-# Move messages in smaller batches.
 MOVE_BATCH_SIZE=500
 
 
@@ -189,26 +104,23 @@ echo
 
 # ==============================================================================
 # Email address
+#
+# First command-line argument can contain the email address.
+#
+# Example:
+#
+#   ./cleanup-kvitton-imap-inbox.sh user@freightseeker.com
 # ==============================================================================
 
-read -p "Email address: " EMAIL
+EMAIL="$1"
+
+if [ -z "$EMAIL" ]; then
+    read -p "Email address: " EMAIL
+fi
 
 if [ -z "$EMAIL" ]; then
     echo
     echo "ERROR: Email address cannot be empty."
-    exit 1
-fi
-
-
-# ==============================================================================
-# Number of emails
-# ==============================================================================
-
-read -p "How many old emails do you want to move to Trash? " LIMIT
-
-if ! [[ "$LIMIT" =~ ^[1-9][0-9]*$ ]]; then
-    echo
-    echo "ERROR: Enter a positive whole number."
     exit 1
 fi
 
@@ -224,19 +136,223 @@ echo
 
 
 # ==============================================================================
+# Retrieve IMAP folders
+# ==============================================================================
+
+echo "Connecting to IMAP server..."
+echo
+
+LIST_RESULT=$(curl \
+    --silent \
+    --show-error \
+    --fail \
+    --url "imaps://${IMAP_SERVER}:${IMAP_PORT}/" \
+    --user "${EMAIL}:${PASSWORD}" \
+    --request 'LIST "" "*"')
+
+if [ $? -ne 0 ]; then
+    echo
+    echo "ERROR: Could not connect to IMAP server."
+    echo
+    echo "Check:"
+    echo "  - Email address"
+    echo "  - Password"
+    echo "  - Internet connection"
+    exit 1
+fi
+
+
+# ==============================================================================
+# Extract mailbox names from LIST response
+#
+# Handles normal Dovecot responses such as:
+#
+#   * LIST (\HasNoChildren) "." INBOX.Kvitton
+#   * LIST (\HasNoChildren) "." "INBOX.kvitton"
+#
+# The folder names are stored exactly as returned by the server.
+# ==============================================================================
+
+FOLDERS=$(echo "$LIST_RESULT" \
+    | sed -E 's/.*"[^"]*" ("([^"]+)"|([^ ]+))\r?$/\2\3/' \
+    | grep -v '^\* LIST ' \
+    | sed '/^[[:space:]]*$/d')
+
+if [ -z "$FOLDERS" ]; then
+    echo
+    echo "ERROR: Could not read the IMAP folder list."
+    exit 1
+fi
+
+
+# ==============================================================================
+# Find Kvitton folder
+#
+# Match case-insensitively.
+#
+# Examples:
+#
+#   Kvitton
+#   kvitton
+#   INBOX.Kvitton
+#   INBOX.kvitton
+#
+# Only the final folder component must equal "kvitton".
+# ==============================================================================
+
+KVITTON_MATCHES=$(echo "$FOLDERS" \
+    | awk 'BEGIN { IGNORECASE=1 }
+           {
+               n=split($0,a,".")
+               if (tolower(a[n]) == "kvitton")
+                   print $0
+           }')
+
+KVITTON_COUNT=$(echo "$KVITTON_MATCHES" \
+    | sed '/^[[:space:]]*$/d' \
+    | wc -l \
+    | tr -d ' ')
+
+
+# ==============================================================================
+# Select source folder
+# ==============================================================================
+
+if [ "$KVITTON_COUNT" -eq 1 ]; then
+
+    MAILBOX="$KVITTON_MATCHES"
+
+    echo "Kvitton folder found:"
+    echo
+    echo "  $MAILBOX"
+    echo
+
+    read -p "Use this folder? (yes/no): " USE_KVITTON
+
+    if [ "$USE_KVITTON" != "yes" ]; then
+        MAILBOX=""
+    fi
+
+else
+    MAILBOX=""
+fi
+
+
+# ==============================================================================
+# Manual folder selection
+# ==============================================================================
+
+if [ -z "$MAILBOX" ]; then
+
+    echo
+    echo "Available IMAP folders:"
+    echo
+
+    i=1
+
+    while IFS= read -r FOLDER; do
+        printf "  %3d) %s\n" "$i" "$FOLDER"
+        i=$((i + 1))
+    done <<< "$FOLDERS"
+
+    echo
+
+    FOLDER_COUNT=$((i - 1))
+
+    read -p "Select source folder [1-$FOLDER_COUNT]: " FOLDER_NUMBER
+
+    if ! [[ "$FOLDER_NUMBER" =~ ^[0-9]+$ ]] \
+        || [ "$FOLDER_NUMBER" -lt 1 ] \
+        || [ "$FOLDER_NUMBER" -gt "$FOLDER_COUNT" ]; then
+
+        echo
+        echo "ERROR: Invalid folder selection."
+        exit 1
+    fi
+
+    MAILBOX=$(echo "$FOLDERS" | sed -n "${FOLDER_NUMBER}p")
+fi
+
+
+# ==============================================================================
+# Find Trash folder
+#
+# First try the IMAP SPECIAL-USE flag \Trash.
+#
+# If unavailable, look for common Trash folder names.
+# ==============================================================================
+
+TRASH=$(echo "$LIST_RESULT" \
+    | awk '
+        BEGIN { IGNORECASE=1 }
+        /\\Trash/ {
+            line=$0
+            sub(/\r$/, "", line)
+
+            if (match(line, /"[^"]+"$/)) {
+                value=substr(line, RSTART+1, RLENGTH-2)
+                print value
+                exit
+            }
+
+            n=split(line,a," ")
+            print a[n]
+            exit
+        }
+    ')
+
+if [ -z "$TRASH" ]; then
+
+    TRASH=$(echo "$FOLDERS" \
+        | awk '
+            {
+                n=split($0,a,".")
+                last=tolower(a[n])
+
+                if (last == "trash" || last == "deleted messages") {
+                    print $0
+                    exit
+                }
+            }
+        ')
+fi
+
+if [ -z "$TRASH" ]; then
+    echo
+    echo "ERROR: Could not automatically identify the Trash folder."
+    echo
+    echo "Nothing has been moved."
+    exit 1
+fi
+
+
+# ==============================================================================
+# Prevent source = destination
+# ==============================================================================
+
+if [ "$MAILBOX" = "$TRASH" ]; then
+    echo
+    echo "ERROR: The selected source folder is the Trash folder."
+    exit 1
+fi
+
+
+# ==============================================================================
+# Number of emails
+# ==============================================================================
+
+echo
+read -p "How many old emails do you want to move to Trash? " LIMIT
+
+if ! [[ "$LIMIT" =~ ^[1-9][0-9]*$ ]]; then
+    echo
+    echo "ERROR: Enter a positive whole number."
+    exit 1
+fi
+
+
+# ==============================================================================
 # Calculate cutoff
-#
-# macOS date syntax.
-#
-# IMAP BEFORE works with calendar dates.
-#
-# Example:
-#
-#   BEFORE 21-Sep-2025
-#
-# means strictly before 21-Sep-2025.
-#
-# Emails dated 21-Sep-2025 are therefore NOT selected.
 # ==============================================================================
 
 BEFORE=$(date -v-1y +"%d-%b-%Y")
@@ -246,6 +362,7 @@ BEFORE=$(date -v-1y +"%d-%b-%Y")
 # Show settings
 # ==============================================================================
 
+echo
 echo "============================================================"
 echo "SETTINGS"
 echo "============================================================"
@@ -277,13 +394,6 @@ trap cleanup EXIT
 
 # ==============================================================================
 # Search mailbox in chunks
-#
-# We intentionally do NOT perform one huge:
-#
-#   UID SEARCH BEFORE ...
-#
-# because mailboxes containing hundreds of thousands of emails can generate
-# an IMAP response too large for curl.
 # ==============================================================================
 
 START=1
@@ -309,11 +419,6 @@ while true; do
     if [ $? -ne 0 ]; then
         echo
         echo "ERROR: IMAP search failed."
-        echo
-        echo "Check:"
-        echo "  - Email address"
-        echo "  - Password"
-        echo "  - IMAP connection"
         exit 1
     fi
 
@@ -328,7 +433,6 @@ while true; do
 
     START=$((END + 1))
 
-    # Prevent an accidental endless scan.
     if [ "$START" -gt 1000000 ]; then
         echo
         echo "Safety stop after searching 1,000,000 mailbox positions."
@@ -339,7 +443,7 @@ done
 
 
 # ==============================================================================
-# Keep exactly the requested number
+# Keep requested number
 # ==============================================================================
 
 head -n "$LIMIT" "$TMP_UIDS" > "${TMP_UIDS}.limited"
@@ -360,19 +464,6 @@ echo "Validating selection..."
 
 # ==============================================================================
 # Safety validation
-#
-# For the supplied UIDs, ask the IMAP server if ANY message has an
-# INTERNALDATE on or after the cutoff.
-#
-# Example:
-#
-#   UID SEARCH UID 9190,9191,9192 SINCE 21-Sep-2025
-#
-# A safe response contains no UIDs:
-#
-#   * SEARCH
-#
-# If ANY UID is returned, the entire operation is aborted.
 # ==============================================================================
 
 check_batch_is_old()
@@ -419,7 +510,7 @@ check_batch_is_old()
 
 
 # ==============================================================================
-# Validate ALL selected emails before asking for confirmation
+# Validate all selected messages
 # ==============================================================================
 
 VALIDATED=0
@@ -444,11 +535,6 @@ while IFS= read -r MSG_UID; do
     fi
 
 done < "$TMP_UIDS"
-
-
-# ==============================================================================
-# Validate remaining messages
-# ==============================================================================
 
 BATCH_COUNT=$(wc -l < "$BATCH_FILE" | tr -d ' ')
 
@@ -512,15 +598,6 @@ MOVED=0
 
 # ==============================================================================
 # Move one batch
-#
-# IMPORTANT:
-#
-# Every batch is validated AGAIN immediately before the UID MOVE command.
-#
-# This means the safety validation happens:
-#
-#   1. Before asking the user for confirmation.
-#   2. Immediately before each MOVE.
 # ==============================================================================
 
 move_batch()
@@ -531,17 +608,8 @@ move_batch()
 
     BATCH_COUNT=$(wc -l < "$BATCH_FILE" | tr -d ' ')
 
-
-    # --------------------------------------------------------------------------
-    # Final safety check
-    # --------------------------------------------------------------------------
-
+    # Final safety validation immediately before MOVE.
     check_batch_is_old "$UID_SET"
-
-
-    # --------------------------------------------------------------------------
-    # Move validated emails to Trash
-    # --------------------------------------------------------------------------
 
     curl \
         --silent \
@@ -559,7 +627,6 @@ move_batch()
         echo "$MOVED emails were successfully moved before the failure."
         exit 1
     fi
-
 
     MOVED=$((MOVED + BATCH_COUNT))
 
@@ -584,11 +651,6 @@ while IFS= read -r MSG_UID; do
     fi
 
 done < "$TMP_UIDS"
-
-
-# ==============================================================================
-# Move final partial batch
-# ==============================================================================
 
 BATCH_COUNT=$(wc -l < "$BATCH_FILE" | tr -d ' ')
 
