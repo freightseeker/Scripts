@@ -173,8 +173,11 @@ fi
 # The folder names are stored exactly as returned by the server.
 # ==============================================================================
 
-FOLDERS=$(echo "$LIST_RESULT" \
-    | sed -E 's/.*"[^"]*" ("([^"]+)"|([^ ]+))\r?$/\2\3/' \
+# IMAP uses CRLF; remove the protocol carriage returns before parsing.
+LIST_RESULT=$(printf '%s\n' "$LIST_RESULT" | tr -d '\r')
+
+FOLDERS=$(printf '%s\n' "$LIST_RESULT" \
+    | sed -E 's/.*"[^"]*" ("([^"]+)"|([^ ]+))$/\2\3/' \
     | grep -v '^\* LIST ' \
     | sed '/^[[:space:]]*$/d')
 
@@ -337,6 +340,25 @@ if [ "$MAILBOX" = "$TRASH" ]; then
 fi
 
 
+# Encode the mailbox as URL path data, not URL delimiters.
+url_encode_mailbox()
+{
+    local LC_ALL=C
+    local value="$1"
+    local i char
+
+    for ((i = 0; i < ${#value}; i++)); do
+        char="${value:i:1}"
+        case "$char" in
+            [a-zA-Z0-9.~_-]) printf '%s' "$char" ;;
+            *) printf '%%%02X' "'$char" ;;
+        esac
+    done
+}
+
+MAILBOX_URL="imaps://${IMAP_SERVER}:${IMAP_PORT}/$(url_encode_mailbox "$MAILBOX")"
+
+
 # ==============================================================================
 # Number of emails
 # ==============================================================================
@@ -412,7 +434,7 @@ while true; do
         --silent \
         --show-error \
         --fail \
-        --url "imaps://${IMAP_SERVER}:${IMAP_PORT}/${MAILBOX}" \
+        --url "$MAILBOX_URL" \
         --user "${EMAIL}:${PASSWORD}" \
         --request "UID SEARCH ${START}:${END} BEFORE ${BEFORE}")
 
@@ -423,6 +445,7 @@ while true; do
     fi
 
     FOUND=$(echo "$RESULT" \
+        | tr -d '\r' \
         | sed -n 's/^\* SEARCH //p' \
         | tr ' ' '\n' \
         | grep -E '^[0-9]+$')
@@ -474,7 +497,7 @@ check_batch_is_old()
         --silent \
         --show-error \
         --fail \
-        --url "imaps://${IMAP_SERVER}:${IMAP_PORT}/${MAILBOX}" \
+        --url "$MAILBOX_URL" \
         --user "${EMAIL}:${PASSWORD}" \
         --request "UID SEARCH UID ${UID_SET} SINCE ${BEFORE}")
 
@@ -485,6 +508,7 @@ check_batch_is_old()
     fi
 
     NEWER_UIDS=$(echo "$RESULT" \
+        | tr -d '\r' \
         | sed -n 's/^\* SEARCH //p' \
         | tr ' ' '\n' \
         | grep -E '^[0-9]+$')
@@ -615,7 +639,7 @@ move_batch()
         --silent \
         --show-error \
         --fail \
-        --url "imaps://${IMAP_SERVER}:${IMAP_PORT}/${MAILBOX}" \
+        --url "$MAILBOX_URL" \
         --user "${EMAIL}:${PASSWORD}" \
         --request "UID MOVE ${UID_SET} ${TRASH}" \
         > /dev/null
